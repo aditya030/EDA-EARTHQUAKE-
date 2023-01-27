@@ -1,0 +1,371 @@
+# Importing Libraries
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import folium
+from folium import Choropleth
+from folium.plugins import HeatMap
+import datetime
+
+np.random.seed(0)
+
+data = pd.read_csv("database.csv")
+#dropping columns with missing values
+missing_values_columns = [col for col in data.columns
+                     if data[col].isnull().any()]
+data = data.drop(missing_values_columns, axis=1)
+data.head()
+
+#loading data for tectonic plate boundaries
+tectonic_plates = pd.read_csv("all.csv" )
+tectonic_plates.head()
+
+#Parsing datetime
+#exploring the length of date objects
+lengths = data["Date"].str.len()
+lengths.value_counts()
+
+#having a look at the fishy datapoints
+wrongdates = np.where([lengths == 24])[1]
+print("Fishy dates:", wrongdates)
+data.loc[wrongdates]
+
+#fixing the wrong dates and changing the datatype from numpy object to datetime64[ns]
+data.loc[3378, "Date"] = "02/23/1975"  
+data.loc[7512, "Date"] = "04/28/1985"
+data.loc[20650, "Date"] = "03/13/2011"
+data['Date']= pd.to_datetime(data["Date"])
+data.info()
+
+#We have time data too. Now that we are at it,lets parse it as well. 
+#exploring the length of time objects
+lengths = data["Time"].str.len()
+lengths.value_counts()
+
+#Having a look at the fishy datapoints
+wrongtime = np.where([lengths == 24])[1]
+print("Fishy time:", wrongtime)
+data.loc[wrongtime]
+
+#fixing the wrong time and changing the datatype from numpy object to timedelta64[ns]
+data.loc[3378, "Time"] = "02:58:41"
+data.loc[7512, "Time"] = "02:53:41"
+data.loc[20650, "Time"] = "02:23:34"
+data['Time']= pd.to_timedelta(data['Time'])
+data.info()
+
+
+data["Date_Time"]=data["Date"] +data["Time"]
+data["Days"]= data.Date.dt.strftime("%A")
+data.head()
+
+data.info()
+
+#plotting a lineplot with magnitudes with respectto dates
+plt.figure(figsize=(12,8))
+Time_series=sns.lineplot(x=data['Date'].dt.year,y="Magnitude",data=data, color="#ffa600")
+Time_series.set_title("Time Series Of Earthquakes Over Years", color="#58508d")
+Time_series.set_ylabel("Magnitude", color="#58508d")
+Time_series.set_xlabel("Date", color="#58508d")
+
+Our research does, however, also take into account earthquakes brought on by nuclear blasts, explosions, and rockburst. We must eliminate the possibility that these large magnitude events were caused by other man-made factors in order to make a clear differentiation regarding the seismic activities. We look at that in more detail in the following plot.
+
+plt.figure(figsize=(12,8))
+colours = ["#ffa600","#bc5090","#ff6361","#003f5c"]
+Time_series_Type=sns.lineplot(x=data['Date'].dt.year,y="Magnitude",data=data,hue="Type", palette= colours)
+Time_series_Type.set_title("Time Series Of Earthquakes Over Years (With Type)", color="#58508d")
+Time_series_Type.set_ylabel("Magnitude", color="#58508d")
+Time_series_Type.set_xlabel("Date", color="#58508d")
+
+We can infer from the figure above that there were relatively large-magnitude events in the late 1960s and early 1970s. Not all of those, though, had seismic origins. A large portion of it was connected to other reasons. The narrative provides a sneak preview of nuclear and 1970s explosions.
+
+We'll examine how earthquakes are distributed throughout the week in the section after this.
+
+#Evauating earthquake in terms of days of week
+plt.figure(figsize=(12,8))
+Days_of_week=sns.barplot(x=data['Days'],y="Magnitude",data=data, ci =None, hue ="Type",palette = colours)
+Days_of_week.set_title("Distribution Of Earthquakes Intensity Over Days Of Week", color="#58508d")
+Days_of_week.set_ylabel("Magnitude", color="#58508d")
+Days_of_week.set_xlabel("Days Of Week", color="#58508d")
+
+#Plotting the depth of earthquake and mean depth
+
+plt.figure(figsize=(12,8))
+depth = data["Depth"].values
+mean_D= data["Depth"].mean()
+Depth_plot = sns.distplot(depth, color ="#003f5c")
+Depth_plot.set_title("Depths of Earthquakes", color="#58508d")
+Depth_plot.set_ylabel("Density", color="#58508d")
+Depth_plot.set_xlabel("Depth", color="#58508d")
+
+plt.axvline(mean_D,0,1, color="#58508d",linewidth=4,label="Mean")
+
+#ploting the magnitude of earthquake and mean magnitute
+
+plt.figure(figsize=(12,9))
+strength = data["Magnitude"].values
+mean_M= data["Magnitude"].mean()
+Magnitude_plot = sns.distplot(strength, color ="#ffa600")
+Magnitude_plot.set_title("Magnitudes of Earthquakes", color="#58508d")
+Magnitude_plot.set_ylabel("Density", color="#58508d")
+Magnitude_plot.set_xlabel("Magnitude", color="#58508d")
+
+plt.axvline(mean_M,0,1, color="#58508d",linewidth=4,label="Mean")
+
+
+In relation to the volume of the Earth compared to what is beneath it, the crust of the Earth, the topmost layer of the planet, is incredibly thin. It varies in thickness from 5 kilometres at Hawaii to 70 kilometres elsewhere. Large fragments of the crust known as tectonic plates are formed. These plates are thought to shift 1.2 to 2 inches every year as a result of the heat-driven convection currents of magma in the earth's mantle. Numerous geological phenomena are explained by the movement of plates. Most earthquakes and volcanoes on earth are thought to be caused by it.
+
+We shall examine whether there is a connection between the incidence of earthquakes and the movement of tectonic plates in the following section.
+
+#Ploting the tectonic plate's boundaries 
+tectonic = folium.Map(tiles="cartodbpositron", zoom_start=5)
+
+plates = list(tectonic_plates["plate"].unique())
+for plate in plates:
+    plate_vals = tectonic_plates[tectonic_plates["plate"] == plate]
+    lats = plate_vals["lat"].values
+    lons = plate_vals["lon"].values
+    points = list(zip(lats, lons))
+    indexes = [None] + [i + 1 for i, x in enumerate(points) if i < len(points) - 1 and abs(x[1] - points[i + 1][1]) > 300] + [None]
+    for i in range(len(indexes) - 1):
+        folium.vector_layers.PolyLine(points[indexes[i]:indexes[i+1]], popup=plate, color="#58508d", fill=False, ).add_to(tectonic)
+
+tectonic
+
+#Plottong the plates along with the earthquake
+tectonic_quake = folium.Map(tiles="cartodbpositron", zoom_start=5)
+gradient = {.33: "#7a5195", .66: "#ef5675", 1: "#ffa600"} 
+plates = list(tectonic_plates["plate"].unique())
+for plate in plates:
+    plate_vals = tectonic_plates[tectonic_plates["plate"] == plate]
+    lats = plate_vals["lat"].values
+    lons = plate_vals["lon"].values
+    points = list(zip(lats, lons))
+    indexes = [None] + [i + 1 for i, x in enumerate(points) if i < len(points) - 1 and abs(x[1] - points[i + 1][1]) > 300] + [None]
+    for i in range(len(indexes) - 1):
+        folium.vector_layers.PolyLine(points[indexes[i]:indexes[i+1]], popup=plate, fill=False,  color="#58508d").add_to(tectonic_quake)
+        HeatMap(data=data[["Latitude", "Longitude"]],hue="Magnitude",min_opacity=0.5,radius=1,gradient=gradient).add_to(tectonic_quake)
+tectonic_quake
+
+# Create a base map with plate boundaries and deapth 
+Mag_tectonics  = folium.Map(tiles="cartodbpositron", zoom_start=5)
+gradient = {.33: "#628d82", .66: "#a3c5bf", 1: "#eafffd"} 
+plates = list(tectonic_plates["plate"].unique())
+for plate in plates:
+    plate_vals = tectonic_plates[tectonic_plates["plate"] == plate]
+    lats = plate_vals["lat"].values
+    lons = plate_vals["lon"].values
+    points = list(zip(lats, lons))
+    indexes = [None] + [i + 1 for i, x in enumerate(points) if i < len(points) - 1 and abs(x[1] - points[i + 1][1]) > 300] + [None]
+    for i in range(len(indexes) - 1):
+        folium.vector_layers.PolyLine(points[indexes[i]:indexes[i+1]], fill=False,  color="#58508d").add_to(Mag_tectonics)
+        
+def colormag(val):
+            if val < 5.9:
+                return "#ffcf6a"
+            elif val < 6.5:
+                return "#fb8270"
+            else:
+                return "#bc5090"
+            
+for i in range(0,len(data)):
+    folium.Circle(location=[data.iloc[i]["Latitude"], data.iloc[i]["Longitude"]],radius=2000, color=colormag(data.iloc[i]["Magnitude"])).add_to(Mag_tectonics)
+
+#A bit of extra code to get legent 
+from branca.element import Template, MacroElement
+
+template = """
+{% macro html(this, kwargs) %}
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>jQuery UI Draggable - Default functionality</title>
+  <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+
+  <script src="https://code.jquery.com/jquery-1.12.4.js"></script>
+  <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+
+</head>
+<body>
+
+ 
+<div id='maplegend' class='maplegend' 
+    style='position: absolute; z-index:9999; border:2px solid grey; background-color:rgba(255, 255, 255, 0.8);
+     border-radius:6px; padding: 10px; font-size:14px; right: 20px; bottom: 20px;'>
+     
+<div class='legend-title'>Magnitude Scale </div>
+<div class='legend-scale'>
+  <ul class='legend-labels'>
+    <li><span style='background:#ffcf6a;opacity:1;'></span>values less than 5.9</li>
+    <li><span style='background:#fb8270;opacity:1;'></span>values less than 6.5</li>
+    <li><span style='background:#bc5090;opacity:1;'></span>values less than 5</li>
+
+  </ul>
+</div>
+</div>
+ 
+</body>
+</html>
+
+<style type='text/css'>
+  .maplegend .legend-title {
+    text-align: left;
+    margin-bottom: 5px;
+    font-weight: bold;
+    font-size: 90%;
+    }
+  .maplegend .legend-scale ul {
+    margin: 0;
+    margin-bottom: 5px;
+    padding: 0;
+    float: left;
+    list-style: none;
+    }
+  .maplegend .legend-scale ul li {
+    font-size: 80%;
+    list-style: none;
+    margin-left: 0;
+    line-height: 18px;
+    margin-bottom: 2px;
+    }
+  .maplegend ul.legend-labels li span {
+    display: block;
+    float: left;
+    height: 16px;
+    width: 30px;
+    margin-right: 5px;
+    margin-left: 0;
+    border: 1px solid #999;
+    }
+  .maplegend .legend-source {
+    font-size: 80%;
+    color: #777;
+    clear: both;
+    }
+  .maplegend a {
+    color: #777;
+    }
+</style>
+{% endmacro %}"""
+
+macro = MacroElement()
+macro._template = Template(template)
+
+Mag_tectonics.get_root().add_child(macro)
+
+Mag_tectonics
+
+# Create a base map with plate boundaries and deapth 
+Depth_tectonics  = folium.Map(tiles="cartodbpositron", zoom_start=5)
+gradient = {.33: "#628d82", .66: "#a3c5bf", 1: "#eafffd"} 
+plates = list(tectonic_plates["plate"].unique())
+for plate in plates:
+    plate_vals = tectonic_plates[tectonic_plates["plate"] == plate]
+    lats = plate_vals["lat"].values
+    lons = plate_vals["lon"].values
+    points = list(zip(lats, lons))
+    indexes = [None] + [i + 1 for i, x in enumerate(points) if i < len(points) - 1 and abs(x[1] - points[i + 1][1]) > 300] + [None]
+    for i in range(len(indexes) - 1):
+        folium.vector_layers.PolyLine(points[indexes[i]:indexes[i+1]],fill=False,  color="#58508d").add_to(Depth_tectonics)
+        
+def colordepth(val):
+            if val < 50:
+                return "#ffcf6a"
+            elif val < 100:
+                return "#fb8270"
+            else:
+                return "#bc5090"
+            
+for i in range(0,len(data)):
+    folium.Circle(location=[data.iloc[i]["Latitude"], data.iloc[i]["Longitude"]],radius=2000, color=colordepth(data.iloc[i]["Depth"])).add_to(Depth_tectonics)
+
+#A bit of extra code to get legent 
+from branca.element import Template, MacroElement
+
+template = """
+{% macro html(this, kwargs) %}
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>jQuery UI Draggable - Default functionality</title>
+  <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+
+  <script src="https://code.jquery.com/jquery-1.12.4.js"></script>
+  <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+
+</head>
+<body>
+
+ 
+<div id='maplegend' class='maplegend' 
+    style='position: absolute; z-index:9999; border:2px solid grey; background-color:rgba(255, 255, 255, 0.8);
+     border-radius:6px; padding: 10px; font-size:14px; right: 20px; bottom: 20px;'>
+     
+<div class='legend-title'>Depth Scale </div>
+<div class='legend-scale'>
+  <ul class='legend-labels'>
+    <li><span style='background:#ffcf6a;opacity:1;'></span>Depth less than 50</li>
+    <li><span style='background:#fb8270;opacity:1;'></span>Depth less than 100</li>
+    <li><span style='background:#bc5090;opacity:1;'></span>Depth more than 100</li>
+
+  </ul>
+</div>
+</div>
+ 
+</body>
+</html>
+
+<style type='text/css'>
+  .maplegend .legend-title {
+    text-align: left;
+    margin-bottom: 5px;
+    font-weight: bold;
+    font-size: 90%;
+    }
+  .maplegend .legend-scale ul {
+    margin: 0;
+    margin-bottom: 5px;
+    padding: 0;
+    float: left;
+    list-style: none;
+    }
+  .maplegend .legend-scale ul li {
+    font-size: 80%;
+    list-style: none;
+    margin-left: 0;
+    line-height: 18px;
+    margin-bottom: 2px;
+    }
+  .maplegend ul.legend-labels li span {
+    display: block;
+    float: left;
+    height: 16px;
+    width: 30px;
+    margin-right: 5px;
+    margin-left: 0;
+    border: 1px solid #999;
+    }
+  .maplegend .legend-source {
+    font-size: 80%;
+    color: #777;
+    clear: both;
+    }
+  .maplegend a {
+    color: #777;
+    }
+</style>
+{% endmacro %}"""
+
+macro = MacroElement()
+macro._template = Template(template)
+
+Depth_tectonics.get_root().add_child(macro)
+
+Depth_tectonics
